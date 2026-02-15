@@ -3,31 +3,8 @@ import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
-import nodeMailer from "nodemailer";
 
 dotenv.config();
-
-//send email with nodemailer helper function
-const sendEmail = async (to, subject, text) => {
-  const transporter = nodeMailer.createTransport({
-    host: process.env.SMPTP_HOST,
-    port: process.env.SMPTP_PORT,
-    secure: false,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-
-  await transporter.sendMail({
-    from: `"No Reply" <${process.env.SMTP_USER}>`,
-    to,
-    subject,
-    text,
-  });
-};
-
-
 
 //helper function to create JWT token
 const createJwtToken = (userId, expireTime) => {
