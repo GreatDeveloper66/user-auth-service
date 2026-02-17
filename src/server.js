@@ -4,8 +4,8 @@ import dotenv from "dotenv";
 import connectDB from "../config/db.js";
 import { registerUser, loginUser } from "../controllers/authController.js";
 
-connectDB();
 dotenv.config();
+connectDB();
 
 const app = express();
 
