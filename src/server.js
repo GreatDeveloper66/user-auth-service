@@ -20,8 +20,8 @@ app.get("/api/hello", (req, res) => {
   res.json({ message: "Hello, World!" });
 });
 
-app.get("/api/register", registerUser);
-app.get("/api/login", loginUser);
+app.post("/api/register", registerUser);
+app.post("/api/login", loginUser);
 
 // Mongo connection
 // mongoose.connect(process.env.MONGO_URI)
