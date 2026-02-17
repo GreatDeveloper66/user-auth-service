@@ -2,7 +2,13 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import connectDB from "../config/db.js";
-import { registerUser, loginUser } from "../controllers/authController.js";
+import {
+  registerUser,
+  loginUser,
+  getUserProfile,
+  updateUserProfile,
+  logoutUser,
+} from "../controllers/authController.js";
 
 dotenv.config();
 connectDB();
@@ -23,11 +29,8 @@ app.get("/api/hello", (req, res) => {
 
 app.post("/api/register", registerUser);
 app.post("/api/login", loginUser);
-
-// Mongo connection
-// mongoose.connect(process.env.MONGO_URI)
-//   .then(() => console.log("MongoDB connected"))
-//   .catch(err => console.error(err));
-
+app.get("/api/profile", getUserProfile); // This route will be protected by auth middleware in a real application
+app.patch("/api/update-profile", updateUserProfile); // This route will also be protected by auth middleware in a real application
+app.post("/api/logout", logoutUser); // This route will also be protected by auth middleware in a real application
 
 export default app;
