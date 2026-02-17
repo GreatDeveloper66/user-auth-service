@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import connectDB from "../config/db.js";
 import { registerUser, loginUser } from "../controllers/authController.js";
 
+connectDB();
 dotenv.config();
 
 const app = express();
@@ -27,6 +28,6 @@ app.post("/api/login", loginUser);
 // mongoose.connect(process.env.MONGO_URI)
 //   .then(() => console.log("MongoDB connected"))
 //   .catch(err => console.error(err));
-connectDB();
+
 
 export default app;
