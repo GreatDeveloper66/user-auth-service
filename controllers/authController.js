@@ -236,6 +236,19 @@ export const updateUserProfile = async (req, res) => {
   }
 };
 
+const deleteUser = async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    const id = jwt.verify(token, process.env.JWT_SECRET).id;
+    const user = await User.findById(id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    await user.deleteOne();
+    res.json({ message: "User deleted" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
