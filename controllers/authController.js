@@ -222,7 +222,9 @@ export const getUserProfile = async (req, res) => {
 export const updateUserProfile = async (req, res) => {
   try {
     const { firstName, lastName, phone } = req.body;
-    const user = await User.findById(req.user.id);
+    const token = req.headers.authorization?.split(" ")[1];
+    const id = jwt.verify(token, process.env.JWT_SECRET).id;
+    const user = await User.findById(id);
     if (!user) return res.status(404).json({ message: "User not found" });
     user.firstName = firstName || user.firstName;
     user.lastName = lastName || user.lastName;
