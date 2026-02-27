@@ -236,7 +236,7 @@ export const updateUserProfile = async (req, res) => {
   }
 };
 
-const deleteUser = async (req, res) => {
+export const deleteUser = async (req, res) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
     const id = jwt.verify(token, process.env.JWT_SECRET).id;
