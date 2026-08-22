@@ -4,7 +4,7 @@ dotenv.config();
 const apiKey = process.env.RESEND_API_KEY;
 const resend = new Resend(apiKey);
 
-const sendEmail = (toEmail, subject, messageInHtml) => {
+const emailService = (toEmail, subject, messageInHtml) => {
     return resend.emails.send({
         from: 'onboarding@resend.dev',
         to: toEmail,
@@ -13,7 +13,7 @@ const sendEmail = (toEmail, subject, messageInHtml) => {
     });
 };
 
-export default sendEmail;;
+export default emailService;
 
 
 
