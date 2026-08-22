@@ -3,6 +3,7 @@ import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
+import { emailService } from "../services/emailService.js";
 
 dotenv.config();
 
@@ -11,6 +12,11 @@ const createJwtToken = (userId, expireTime) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: expireTime,
   });
+};
+
+const sendEmail = async (email, subject, message) => {
+  // Implement email sending logic here
+  await emailService.sendEmail(email, subject, message);
 };
 
 export const registerUser = async (req, res) => {
@@ -138,7 +144,7 @@ export const sendLoginCode = async (req, res) => {
 
       // Send the code via email (implementation of sendEmail not shown here)
       // await sendEmail(user.email, "Your Verification Code", `Your code is: ${verificationCode}`);
-      sendEmail(user.email, "Your Verification Code", `Your code is: ${verificationCode}`);
+      sendEmail(user.email, "Your Verification Code", `<p>Your code is: ${verificationCode}</p>`);
       res.json({ message: "Verification code sent to email" });
     }
   } catch (err) {
@@ -249,33 +255,6 @@ export const deleteUser = async (req, res) => {
   }
 };
 
-const forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    } else {
-      // Generate a password reset token
-      const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
-      const resetTokenExpiresAt = Date.now() + 15 * 60 * 1000; // Token valid for 15 minutes  
-      // Save the token and its expiration time to the user document
-      user.resetPasswordToken = resetToken;
-      user.resetPasswordExpiresAt = resetTokenExpiresAt;
-      await user.save();
-      // Send the token via email
-      await sendEmail(
-        user.email,
-        "Your Password Reset Token",
-        `Your password reset token is: ${resetToken}`
-      );
-      res.json({ message: "Password reset token sent to email" });
-    }
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
 export const resetPassword = async (req, res) => {
   try {
     const { email, token, newPassword } = req.body;
@@ -299,6 +278,34 @@ export const resetPassword = async (req, res) => {
         await user.save();
         res.json({ message: "Password reset successful" });
       }
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    } else {
+      // Generate a password reset token
+      const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
+      const resetTokenExpiresAt = Date.now() + 15 * 60 * 1000; // Token valid for 15 minutes  
+      // Save the token and its expiration time to the user document
+      user.resetPasswordToken = resetToken;
+      user.resetPasswordExpiresAt = resetTokenExpiresAt;
+      await user.save();
+      // Send the token via email
+      await sendEmail(
+        user.email,
+        "Your Password Reset Token",
+        `Your password reset token is: ${resetToken}`
+      );
+      res.json({ message: "Password reset token sent to email" });
     }
   } catch (err) {
     res.status(500).json({ message: err.message });
