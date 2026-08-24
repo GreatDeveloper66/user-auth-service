@@ -9,6 +9,8 @@ import {
   updateUserProfile,
   logoutUser,
   deleteUser,
+  forgotPassword,
+  resetPassword,
 } from "../controllers/authController.js";
 
 dotenv.config();
@@ -34,5 +36,6 @@ app.get("/api/profile", getUserProfile); // This route will be protected by auth
 app.patch("/api/update-profile", updateUserProfile); // This route will also be protected by auth middleware in a real application
 app.post("/api/logout", logoutUser);
 app.delete("/api/delete-user", deleteUser); // This route will also be protected by auth middleware in a real application
-
+app.post("/api/forgot-password", forgotPassword);
+app.post("/api/reset-password", resetPassword);
 export default app;
