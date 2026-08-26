@@ -11,6 +11,8 @@ import {
   deleteUser,
   forgotPassword,
   resetPassword,
+  sendLoginCode,
+  loginWithCode
 } from "../controllers/authController.js";
 
 dotenv.config();
@@ -38,4 +40,6 @@ app.post("/api/logout", logoutUser);
 app.delete("/api/delete-user", deleteUser); // This route will also be protected by auth middleware in a real application
 app.post("/api/forgot-password", forgotPassword);
 app.post("/api/reset-password", resetPassword);
+app.post("/api/send-login-code", sendLoginCode);
+app.post("/api/login-with-code", loginWithCode);
 export default app;
