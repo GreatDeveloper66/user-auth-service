@@ -144,7 +144,7 @@ export const sendLoginCode = async (req, res) => {
 
       // Send the code via email (implementation of sendEmail not shown here)
       // await sendEmail(user.email, "Your Verification Code", `Your code is: ${verificationCode}`);
-      sendEmail(user.email, "Your Verification Code", `<p>Your code is: ${verificationCode}</p>`);
+      await sendEmail(user.email, "Your Verification Code", `<p>Your code is: ${verificationCode}</p>`);
       res.json({ message: "Verification code sent to email" });
     }
   } catch (err) {
