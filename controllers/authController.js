@@ -149,8 +149,6 @@ export const sendLoginCode = async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ message: err.message });
-  } finally {
-    res.json({ message: "Login with code process completed" });
   }
 }
 
@@ -185,8 +183,6 @@ export const loginWithCode = async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ message: err.message });
-  } finally {
-    res.json({ message: "Login with code process completed" });
   }
 };
 
@@ -203,8 +199,6 @@ export const logoutUser = async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ message: err.message });
-  } finally {
-    res.json({ message: "Client-side logout completed" });
   }
 };
 
