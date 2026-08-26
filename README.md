@@ -32,10 +32,17 @@ This service handles all authentication concerns for the application. It exposes
 ## API Endpoints
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+| -------- | ---------- | ------------- |
 | POST | `/api/register` | Register a new user |
 | POST | `/api/login` | Authenticate a user and return a JWT token |
 | POST | `/api/logout` | Invalidate a user session |
+| GET | `/api/profile` | Get user profile information |
+| DELETE | `/api/delete-user` | Delete user |
+| PATCH | `/api/update-user` | Update user |
+| POST | `/api/forgot-password` | Forgot password |
+| POST | `/api/reset-password` | Reset password |
+| POST | `/api/send-login-code` | Send login code |
+| POST | `/api/login-with-code` | Login with code |
 
 ---
 
@@ -87,7 +94,7 @@ npm start
 This service is one of six components in the Meal Plan & Grocery Discovery application:
 
 | Service | Responsibility |
-|---------|---------------|
+| --------- | --------------- |
 | **user-auth-service** | Authentication & JWT management |
 | meal-plan-diet-profile-service | Diet profile storage & management |
 | ai-meal-planner-backend | AI-powered meal plan generation |
