@@ -13,36 +13,54 @@ This service handles all authentication concerns for the application. It exposes
 ## Tech Stack
 
 - **Runtime:** Node.js
-- **Language:** TypeScript
+- **Language:** JavaScript (ES modules)
 - **Framework:** Express
-- **Database:** MongoDB
-- **Authentication:** JWT (JSON Web Tokens)
+- **Database:** MongoDB (Mongoose)
+- **Authentication:** JWT (JSON Web Tokens), bcrypt password hashing
+- **Email:** Resend (login codes and password reset tokens)
 
 ---
 
 ## Features
 
-- User registration with input validation
-- Secure login with password hashing
-- JWT token issuance and verification
-- Token-based session management
+- User registration with password hashing
+- Login with email or phone, using a password or an emailed one-time code
+- JWT issuance (tokens expire after 1 day)
+- Password reset by emailed token
+
+Logout is stateless: the server does not revoke tokens, so the client must discard its token.
 
 ---
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-| -------- | ---------- | ------------- |
-| POST | `/api/register` | Register a new user |
-| POST | `/api/login` | Authenticate a user and return a JWT token |
-| POST | `/api/logout` | Invalidate a user session |
-| GET | `/api/profile` | Get user profile information |
-| DELETE | `/api/delete-user` | Delete user |
-| PATCH | `/api/update-user` | Update user |
-| POST | `/api/forgot-password` | Forgot password |
-| POST | `/api/reset-password` | Reset password |
-| POST | `/api/send-login-code` | Send login code |
-| POST | `/api/login-with-code` | Login with code |
+| Method | Endpoint | Auth | Body | Description |
+| -------- | ---------- | ---- | ---- | ------------- |
+| GET | `/api/health` | none | — | Health check |
+| POST | `/api/register` | none | `firstName`, `lastName`, `email`, `password`, `phone` | Register a new user and return a JWT |
+| POST | `/api/login` | none | `email` or `phone`, plus `password` or `code` | Authenticate and return a JWT |
+| POST | `/api/logout` | Bearer | — | Acknowledge logout (client removes the token) |
+| GET | `/api/profile` | Bearer | — | Get the current user's profile (password excluded) |
+| PATCH | `/api/update-profile` | Bearer | `firstName`, `lastName`, `phone` (all optional) | Update the current user's profile |
+| DELETE | `/api/delete-user` | Bearer | — | Delete the current user |
+| POST | `/api/forgot-password` | none | `email` | Email a 6-digit reset token (valid 15 minutes) |
+| POST | `/api/reset-password` | none | `email`, `token`, `newPassword` | Reset the password with that token |
+| POST | `/api/send-login-code` | none | `email` | Email a 6-digit login code (valid 15 minutes) |
+| POST | `/api/login-with-code` | none | `email`, `code` | Log in with that code and return a JWT |
+
+`/api/update-profile` cannot change email or password; any `email` or `password` in the body is ignored. Use the forgot/reset flow to change a password.
+
+Register and login responses:
+
+```json
+{
+  "message": "Login successful",
+  "user": { "id": "...", "email": "...", "firstName": "...", "lastName": "..." },
+  "token": "<JWT>"
+}
+```
+
+The JWT payload is `{ id }` (the user's MongoDB `_id`). Other services read the user ID from it.
 
 ---
 
@@ -51,11 +69,13 @@ This service handles all authentication concerns for the application. It exposes
 Create a `.env` file in the root of the project with the following variables:
 
 ```env
-PORT=3001
-MONGODB_URI=your_mongodb_connection_string
+MONGO_USERNAME=your_mongodb_atlas_username
+MONGO_PASSWORD=your_mongodb_atlas_password
 JWT_SECRET=your_jwt_secret
-JWT_EXPIRES_IN=24h
+RESEND_API_KEY=your_resend_api_key
 ```
+
+`JWT_SECRET` must be the same value used by every service that verifies tokens.
 
 ---
 
@@ -64,7 +84,7 @@ JWT_EXPIRES_IN=24h
 ### Prerequisites
 
 - Node.js v18+
-- MongoDB instance (local or cloud)
+- MongoDB Atlas account (`config/db.js` builds the connection string for a specific Atlas cluster from `MONGO_USERNAME` and `MONGO_PASSWORD`)
 
 ### Installation
 
@@ -74,18 +94,11 @@ cd user-auth-service
 npm install
 ```
 
-### Development
+### Running
 
-```bash
-npm run dev
-```
+The app is deployed on Vercel, which imports the Express app exported from `src/server.js`.
 
-### Production
-
-```bash
-npm run build
-npm start
-```
+`npm run dev` and `npm start` both run `node src/server.js`, but that file does not call `app.listen()`. It connects to MongoDB but never listens on a port, so the service cannot currently be run locally this way. `npm run build` only runs `npm install`.
 
 ---
 
