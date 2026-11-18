@@ -3,6 +3,7 @@ import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
+import { randomInt } from "node:crypto";
 import emailService from "../services/emailService.js";
 
 dotenv.config();
@@ -28,6 +29,77 @@ const isValidOneTimeSecret = (submitted, stored, expiresAt) =>
   submitted === stored &&
   expiresAt != null &&
   Date.now() <= new Date(expiresAt).getTime();
+
+// Brute-force limits for 6-digit codes. Counts live on the user document because
+// Vercel runs many short-lived instances, so in-memory rate limiting would not hold.
+const MAX_SECRET_ATTEMPTS = 5; // wrong guesses allowed per issued code or token
+const RESEND_COOLDOWN_MS = 60 * 1000; // at most one new code or token per minute
+const SECRET_TTL_MS = 15 * 60 * 1000; // codes and tokens expire after 15 minutes
+
+const SECRET_FIELDS = {
+  login: { secret: "verificationCode", expiresAt: "codeExpiresAt", attempts: "verificationAttempts", sentAt: "codeSentAt" },
+  reset: { secret: "resetPasswordToken", expiresAt: "resetPasswordExpiresAt", attempts: "resetPasswordAttempts", sentAt: "resetPasswordSentAt" },
+};
+
+const generateSixDigitCode = () => randomInt(100000, 1000000).toString();
+
+// Seconds the user must wait before another code or token can be sent, or 0.
+const resendWaitSeconds = (user, kind) => {
+  const sentAt = user[SECRET_FIELDS[kind].sentAt];
+  if (!sentAt) return 0;
+  const remaining = new Date(sentAt).getTime() + RESEND_COOLDOWN_MS - Date.now();
+  return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+};
+
+// Issues a fresh code or token and resets its attempt count.
+const issueOneTimeSecret = async (user, kind) => {
+  const f = SECRET_FIELDS[kind];
+  const secret = generateSixDigitCode();
+  user[f.secret] = secret;
+  user[f.expiresAt] = Date.now() + SECRET_TTL_MS;
+  user[f.attempts] = 0;
+  user[f.sentAt] = Date.now();
+  await user.save();
+  return secret;
+};
+
+/**
+ * Checks a submitted code or token. Returns "ok", "invalid", or "locked".
+ * The attempt counter is incremented atomically before comparing, so parallel
+ * guesses cannot exceed MAX_SECRET_ATTEMPTS. On "ok" or "locked" the secret is cleared.
+ */
+const verifyOneTimeSecret = async (user, kind, submitted) => {
+  const f = SECRET_FIELDS[kind];
+  const stored = user[f.secret];
+  if (!isNonEmptyString(stored)) return "invalid";
+
+  const counted = await User.findOneAndUpdate(
+    { _id: user._id, [f.secret]: stored },
+    { $inc: { [f.attempts]: 1 } },
+    { new: true }
+  );
+  if (!counted) return "invalid"; // replaced or cleared by another request
+
+  const clear = () =>
+    User.updateOne({ _id: user._id }, { $set: { [f.secret]: null, [f.expiresAt]: null, [f.attempts]: 0 } });
+
+  if (counted[f.attempts] > MAX_SECRET_ATTEMPTS) {
+    await clear();
+    return "locked";
+  }
+  if (!isValidOneTimeSecret(submitted, counted[f.secret], counted[f.expiresAt])) return "invalid";
+  await clear();
+  return "ok";
+};
+
+// Sends the matching HTTP error for a failed verifyOneTimeSecret result.
+const rejectOneTimeSecret = (res, result, kind) => {
+  const what = kind === "login" ? "code" : "token";
+  if (result === "locked") {
+    return res.status(429).json({ message: `Too many attempts. Request a new ${what}.` });
+  }
+  return res.status(400).json({ message: `Invalid or expired ${what}` });
+};
 
 const sendEmail = async (email, subject, message) => {
   // Implement email sending logic here
@@ -120,12 +192,8 @@ export const loginUser = async (req, res) => {
     // 🧠 3️⃣ If login via verification code
     // 🔢 Code login
     else if (code !== undefined) {
-      if (!isValidOneTimeSecret(code, user.verificationCode, user.codeExpiresAt)) {
-        return res.status(400).json({ message: "Invalid or expired code" });
-      }
-      user.verificationCode = null;
-      user.codeExpiresAt = null;
-      await user.save();
+      const result = await verifyOneTimeSecret(user, "login", code);
+      if (result !== "ok") return rejectOneTimeSecret(res, result, "login");
     }
     // 🧠 4️⃣ If neither provided
     else {
@@ -159,14 +227,13 @@ export const sendLoginCode = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     } else {
-      // Generate a verification code
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-      const CodeExpiresAt = Date.now() + 15*60*1000; // Code valid for 15 minutes
-
-      // Save the code and its expiration time to the user document
-      user.verificationCode = verificationCode;
-      user.codeExpiresAt = CodeExpiresAt;
-      await user.save();
+      const wait = resendWaitSeconds(user, "login");
+      if (wait > 0) {
+        res.set("Retry-After", String(wait));
+        return res.status(429).json({ message: `Please wait ${wait} seconds before requesting another code.` });
+      }
+      // Generate a verification code (valid 15 minutes, 5 attempts)
+      const verificationCode = await issueOneTimeSecret(user, "login");
 
       // Send the code via email (implementation of sendEmail not shown here)
       // await sendEmail(user.email, "Your Verification Code", `Your code is: ${verificationCode}`);
@@ -188,14 +255,11 @@ export const loginWithCode = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     } else {
-      // Verify the code
-      if (!isValidOneTimeSecret(code, user.verificationCode, user.codeExpiresAt)) {
-        return res.status(400).json({ message: "Invalid or expired code" });
+      // Verify the code (clears it on success or after too many attempts)
+      const result = await verifyOneTimeSecret(user, "login", code);
+      if (result !== "ok") {
+        return rejectOneTimeSecret(res, result, "login");
       } else {
-        // Clear the code and expiration time
-        user.verificationCode = null;
-        user.codeExpiresAt = null;
-        await user.save();
         // Create a JWT token
         const token = createJwtToken(user._id, "1d");
         res.json({
@@ -288,17 +352,14 @@ export const resetPassword = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     } else {
-      // Verify the token
-      if (!isValidOneTimeSecret(token, user.resetPasswordToken, user.resetPasswordExpiresAt)) {
-        return res.status(400).json({ message: "Invalid or expired token" });
+      // Verify the token (clears it on success or after too many attempts)
+      const result = await verifyOneTimeSecret(user, "reset", token);
+      if (result !== "ok") {
+        return rejectOneTimeSecret(res, result, "reset");
       } else {
-        // Hash the new password
+        // Hash and store the new password
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        // Update the user's password and clear the reset token
-        user.password = hashedPassword;
-        user.resetPasswordToken = null;
-        user.resetPasswordExpiresAt = null;
-        await user.save();
+        await User.updateOne({ _id: user._id }, { $set: { password: hashedPassword } });
         res.json({ message: "Password reset successful" });
       }
     }
@@ -318,13 +379,13 @@ export const forgotPassword = async (req, res) => {
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     } else {
-      // Generate a password reset token
-      const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
-      const resetTokenExpiresAt = Date.now() + 15 * 60 * 1000; // Token valid for 15 minutes  
-      // Save the token and its expiration time to the user document
-      user.resetPasswordToken = resetToken;
-      user.resetPasswordExpiresAt = resetTokenExpiresAt;
-      await user.save();
+      const wait = resendWaitSeconds(user, "reset");
+      if (wait > 0) {
+        res.set("Retry-After", String(wait));
+        return res.status(429).json({ message: `Please wait ${wait} seconds before requesting another token.` });
+      }
+      // Generate a password reset token (valid 15 minutes, 5 attempts)
+      const resetToken = await issueOneTimeSecret(user, "reset");
       // Send the token via email
       await sendEmail(
         user.email,

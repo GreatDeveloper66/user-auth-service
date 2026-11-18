@@ -48,6 +48,8 @@ Logout is stateless: the server does not revoke tokens, so the client must disca
 | POST | `/api/send-login-code` | none | `email` | Email a 6-digit login code (valid 15 minutes) |
 | POST | `/api/login-with-code` | none | `email`, `code` | Log in with that code and return a JWT |
 
+Login codes and reset tokens are 6 digits, valid for 15 minutes, and single use. Each allows 5 wrong attempts; after that it is cleared and the endpoint returns `429` until a new one is requested. A new code or token can be requested at most once per minute (`429` with a `Retry-After` header otherwise). Missing or non-string fields return `400`.
+
 `/api/update-profile` cannot change email or password; any `email` or `password` in the body is ignored. Use the forgot/reset flow to change a password.
 
 Register and login responses:

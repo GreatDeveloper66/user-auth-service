@@ -16,6 +16,13 @@ const userSchema = new mongoose.Schema(
     // 🧠 for verification / OTP login
     verificationCode: String,
     codeExpiresAt: Date,
+
+    // Brute-force limits for the 6-digit login code and reset token
+    // (see verifyOneTimeSecret in controllers/authController.js).
+    verificationAttempts: { type: Number, default: 0 },
+    codeSentAt: Date,
+    resetPasswordAttempts: { type: Number, default: 0 },
+    resetPasswordSentAt: Date,
   },
   { timestamps: true }
 );
