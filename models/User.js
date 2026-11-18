@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Optional: automatically remove expired codes
-userSchema.index({ codeExpiresAt: 1 }, { expireAfterSeconds: 0 });
+// Expired codes are rejected by the login handlers. Do not add a TTL index on
+// codeExpiresAt: a TTL index deletes the whole user document, not just the code.
 
 export default mongoose.model("User", userSchema);

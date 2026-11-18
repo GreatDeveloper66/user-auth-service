@@ -14,6 +14,21 @@ const createJwtToken = (userId, expireTime) => {
   });
 };
 
+// Request fields used in queries or comparisons must be non-empty strings.
+// An omitted field would become { field: undefined }, which matches users missing that
+// field, and an object such as { "$ne": null } would act as a query operator.
+const isNonEmptyString = (value) => typeof value === "string" && value.length > 0;
+
+// A one-time code or token is valid only if one was issued, it matches exactly,
+// and it has not expired. Without the first check, a missing code (undefined) would
+// match a user who never requested one.
+const isValidOneTimeSecret = (submitted, stored, expiresAt) =>
+  isNonEmptyString(submitted) &&
+  isNonEmptyString(stored) &&
+  submitted === stored &&
+  expiresAt != null &&
+  Date.now() <= new Date(expiresAt).getTime();
+
 const sendEmail = async (email, subject, message) => {
   // Implement email sending logic here
   await emailService.sendEmail(email, subject, message);
@@ -22,6 +37,12 @@ const sendEmail = async (email, subject, message) => {
 export const registerUser = async (req, res) => {
   try {
     const { firstName, lastName, email, password, phone } = req.body;
+    if (!isNonEmptyString(email) || !isNonEmptyString(password)) {
+      return res.status(400).json({ message: "Email and password are required" });
+    }
+    if (phone !== undefined && !isNonEmptyString(phone)) {
+      return res.status(400).json({ message: "Phone must be a string" });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -78,26 +99,28 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
   try {
     const { email, phone, password, code } = req.body;
-    //🧠 1️⃣ Identify user by email or phone
-    const user = await User.findOne({ $or: [{ email }, { phone }] });
+    //🧠 1️⃣ Identify user by email or phone (only the identifiers actually sent)
+    const identifiers = [];
+    if (isNonEmptyString(email)) identifiers.push({ email });
+    if (isNonEmptyString(phone)) identifiers.push({ phone });
+    if (identifiers.length === 0) {
+      return res.status(400).json({ message: "Email or phone is required" });
+    }
+    const user = await User.findOne({ $or: identifiers });
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // 🧠 2️⃣ If login via password
     // 🔐 Password login
 
-    if (password) {
-      const isMatch = await bcrypt.compare(password, user.password);
+    if (isNonEmptyString(password)) {
+      const isMatch = isNonEmptyString(user.password) && (await bcrypt.compare(password, user.password));
       if (!isMatch)
         return res.status(400).json({ message: "Invalid credentials" });
     }
     // 🧠 3️⃣ If login via verification code
     // 🔢 Code login
-    else if (code) {
-      if (
-        !user.verificationCode ||
-        user.verificationCode !== code ||
-        user.codeExpiresAt < Date.now()
-      ) {
+    else if (code !== undefined) {
+      if (!isValidOneTimeSecret(code, user.verificationCode, user.codeExpiresAt)) {
         return res.status(400).json({ message: "Invalid or expired code" });
       }
       user.verificationCode = null;
@@ -129,6 +152,9 @@ export const loginUser = async (req, res) => {
 export const sendLoginCode = async (req, res) => {
   try {
     const { email } = req.body;
+    if (!isNonEmptyString(email)) {
+      return res.status(400).json({ message: "Email is required" });
+    }
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -155,12 +181,15 @@ export const sendLoginCode = async (req, res) => {
 export const loginWithCode = async (req, res) => {
   try {
     const { email, code } = req.body;
+    if (!isNonEmptyString(email) || !isNonEmptyString(code)) {
+      return res.status(400).json({ message: "Email and code are required" });
+    }
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     } else {
       // Verify the code
-      if (code !== user.verificationCode || Date.now() > user.codeExpiresAt) {
+      if (!isValidOneTimeSecret(code, user.verificationCode, user.codeExpiresAt)) {
         return res.status(400).json({ message: "Invalid or expired code" });
       } else {
         // Clear the code and expiration time
@@ -252,15 +281,15 @@ export const deleteUser = async (req, res) => {
 export const resetPassword = async (req, res) => {
   try {
     const { email, token, newPassword } = req.body;
+    if (!isNonEmptyString(email) || !isNonEmptyString(token) || !isNonEmptyString(newPassword)) {
+      return res.status(400).json({ message: "Email, token, and newPassword are required" });
+    }
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     } else {
       // Verify the token
-      if (
-        token !== user.resetPasswordToken ||
-        Date.now() > user.resetPasswordExpiresAt
-      ) {
+      if (!isValidOneTimeSecret(token, user.resetPasswordToken, user.resetPasswordExpiresAt)) {
         return res.status(400).json({ message: "Invalid or expired token" });
       } else {
         // Hash the new password
@@ -282,6 +311,9 @@ export const resetPassword = async (req, res) => {
 export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
+    if (!isNonEmptyString(email)) {
+      return res.status(400).json({ message: "Email is required" });
+    }
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
