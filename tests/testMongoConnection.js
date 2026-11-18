@@ -1,29 +1,14 @@
 import connectDB from '../config/db.js';
-import { describe, test } from 'node:test';
+import mongoose from 'mongoose';
+import { describe, test, after } from 'node:test';
 import assert from 'node:assert';
 
+describe('MongoDB Connection', () => {
+    after(() => mongoose.disconnect());
 
-describe ('MongoDB Connection', () => {
     test('should connect to MongoDB successfully', async () => {
-        try {
-            await connectDB();
-            console.log('MongoDB connection test passed');
-            assert.ok(true); // Mark the test as passed
-        } catch (error) {
-            console.error('MongoDB connection test failed:', error);
-            assert.fail('MongoDB connection test failed');
-        }
+        // connectDB logs failures instead of throwing, so check its return value.
+        const connected = await connectDB();
+        assert.strictEqual(connected, true, 'MongoDB connection failed; see the error logged above');
     });
 });
-
-// describe('MongoDB Connection', () => {
-//     it('should connect to MongoDB successfully', async () => {
-//         try {
-//             await connectDB();
-//             console.log('MongoDB connection test passed');
-//         } catch (error) {
-//             console.error('MongoDB connection test failed:', error);
-//             throw error; // Rethrow the error to fail the test
-//         }
-//     });
-// });
