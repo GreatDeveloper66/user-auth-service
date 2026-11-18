@@ -74,8 +74,6 @@ JWT_SECRET=your_jwt_secret
 RESEND_API_KEY=your_resend_api_key
 ```
 
-If `MONGO_URI` is not set, the service temporarily falls back to `MONGO_USERNAME` and `MONGO_PASSWORD` with a hardcoded Atlas host. That fallback will be removed.
-
 If MongoDB can't be reached, the service logs the error and keeps running: `/api/health` still responds, and database routes return 500.
 
 `JWT_SECRET` must be the same value used by every service that verifies tokens.
