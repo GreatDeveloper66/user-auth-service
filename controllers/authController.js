@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import { randomInt } from "node:crypto";
 import emailService from "../services/emailService.js";
+import { clientIp, ipBlockedSeconds, recordIpFailure, tooManyAttempts } from "../services/loginThrottle.js";
 
 dotenv.config();
 
@@ -41,6 +42,35 @@ const SECRET_FIELDS = {
   reset: { secret: "resetPasswordToken", expiresAt: "resetPasswordExpiresAt", attempts: "resetPasswordAttempts", sentAt: "resetPasswordSentAt" },
 };
 
+// Password guessing limit per account (the per-IP limit is in services/loginThrottle.js).
+const MAX_PASSWORD_FAILURES = 10;
+const ACCOUNT_LOCK_MS = 15 * 60 * 1000;
+
+const accountLockedSeconds = (user) => {
+  if (!user.lockUntil) return 0;
+  const remaining = new Date(user.lockUntil).getTime() - Date.now();
+  return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
+};
+
+// Counts a wrong password atomically. Returns true if this failure locked the account.
+const recordPasswordFailure = async (user) => {
+  const updated = await User.findOneAndUpdate(
+    { _id: user._id },
+    { $inc: { failedLoginAttempts: 1 } },
+    { new: true }
+  );
+  if (updated && updated.failedLoginAttempts >= MAX_PASSWORD_FAILURES) {
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { lockUntil: new Date(Date.now() + ACCOUNT_LOCK_MS), failedLoginAttempts: 0 } }
+    );
+    return true;
+  }
+  return false;
+};
+
+const IP_LIMIT_MESSAGE = "Too many failed attempts from this network. Try again later.";
+
 const generateSixDigitCode = () => randomInt(100000, 1000000).toString();
 
 // Seconds the user must wait before another code or token can be sent, or 0.
@@ -62,6 +92,26 @@ const issueOneTimeSecret = async (user, kind) => {
   await user.save();
   return secret;
 };
+
+// Emails a freshly issued code or token. If sending fails, withdraws it and the
+// resend cooldown (so the user can retry at once) and returns false.
+// Logs only the error message, never the code or the recipient's details.
+const deliverOneTimeSecret = async (user, kind, subject, html) => {
+  try {
+    await sendEmail(user.email, subject, html);
+    return true;
+  } catch (err) {
+    console.error(`Email send failed (${kind}): ${err.message}`);
+    const f = SECRET_FIELDS[kind];
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { [f.secret]: null, [f.expiresAt]: null, [f.attempts]: 0, [f.sentAt]: null } }
+    );
+    return false;
+  }
+};
+
+const EMAIL_FAILED_MESSAGE = "Could not send the email. Please try again later.";
 
 /**
  * Checks a submitted code or token. Returns "ok", "invalid", or "locked".
@@ -171,6 +221,10 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
   try {
     const { email, phone, password, code } = req.body;
+    const ip = clientIp(req);
+    const ipWait = await ipBlockedSeconds(ip);
+    if (ipWait > 0) return tooManyAttempts(res, ipWait, IP_LIMIT_MESSAGE);
+
     //🧠 1️⃣ Identify user by email or phone (only the identifiers actually sent)
     const identifiers = [];
     if (isNonEmptyString(email)) identifiers.push({ email });
@@ -179,21 +233,40 @@ export const loginUser = async (req, res) => {
       return res.status(400).json({ message: "Email or phone is required" });
     }
     const user = await User.findOne({ $or: identifiers });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) {
+      await recordIpFailure(ip);
+      return res.status(404).json({ message: "User not found" });
+    }
 
     // 🧠 2️⃣ If login via password
     // 🔐 Password login
 
     if (isNonEmptyString(password)) {
+      // Check the lock before comparing, so a locked account reveals nothing about the password.
+      const lockWait = accountLockedSeconds(user);
+      if (lockWait > 0) {
+        return tooManyAttempts(res, lockWait, "Too many failed attempts. Account temporarily locked; try again later or log in with a code.");
+      }
       const isMatch = isNonEmptyString(user.password) && (await bcrypt.compare(password, user.password));
-      if (!isMatch)
+      if (!isMatch) {
+        await recordIpFailure(ip);
+        if (await recordPasswordFailure(user)) {
+          return tooManyAttempts(res, ACCOUNT_LOCK_MS / 1000, "Too many failed attempts. Account temporarily locked; try again later or log in with a code.");
+        }
         return res.status(400).json({ message: "Invalid credentials" });
+      }
+      if (user.failedLoginAttempts || user.lockUntil) {
+        await User.updateOne({ _id: user._id }, { $set: { failedLoginAttempts: 0, lockUntil: null } });
+      }
     }
     // 🧠 3️⃣ If login via verification code
     // 🔢 Code login
     else if (code !== undefined) {
       const result = await verifyOneTimeSecret(user, "login", code);
-      if (result !== "ok") return rejectOneTimeSecret(res, result, "login");
+      if (result !== "ok") {
+        await recordIpFailure(ip);
+        return rejectOneTimeSecret(res, result, "login");
+      }
     }
     // 🧠 4️⃣ If neither provided
     else {
@@ -235,9 +308,13 @@ export const sendLoginCode = async (req, res) => {
       // Generate a verification code (valid 15 minutes, 5 attempts)
       const verificationCode = await issueOneTimeSecret(user, "login");
 
-      // Send the code via email (implementation of sendEmail not shown here)
-      // await sendEmail(user.email, "Your Verification Code", `Your code is: ${verificationCode}`);
-      await sendEmail(user.email, "Your Verification Code", `<p>Your code is: ${verificationCode}</p>`);
+      const sent = await deliverOneTimeSecret(
+        user,
+        "login",
+        "Your KitchenWise login code",
+        `<p>Your KitchenWise login code is: <strong>${verificationCode}</strong></p><p>It expires in 15 minutes. If you didn't request it, you can ignore this email.</p>`
+      );
+      if (!sent) return res.status(502).json({ message: EMAIL_FAILED_MESSAGE });
       res.json({ message: "Verification code sent to email" });
     }
   } catch (err) {
@@ -251,13 +328,18 @@ export const loginWithCode = async (req, res) => {
     if (!isNonEmptyString(email) || !isNonEmptyString(code)) {
       return res.status(400).json({ message: "Email and code are required" });
     }
+    const ip = clientIp(req);
+    const ipWait = await ipBlockedSeconds(ip);
+    if (ipWait > 0) return tooManyAttempts(res, ipWait, IP_LIMIT_MESSAGE);
     const user = await User.findOne({ email });
     if (!user) {
+      await recordIpFailure(ip);
       return res.status(404).json({ message: "User not found" });
     } else {
       // Verify the code (clears it on success or after too many attempts)
       const result = await verifyOneTimeSecret(user, "login", code);
       if (result !== "ok") {
+        await recordIpFailure(ip);
         return rejectOneTimeSecret(res, result, "login");
       } else {
         // Create a JWT token
@@ -348,18 +430,27 @@ export const resetPassword = async (req, res) => {
     if (!isNonEmptyString(email) || !isNonEmptyString(token) || !isNonEmptyString(newPassword)) {
       return res.status(400).json({ message: "Email, token, and newPassword are required" });
     }
+    const ip = clientIp(req);
+    const ipWait = await ipBlockedSeconds(ip);
+    if (ipWait > 0) return tooManyAttempts(res, ipWait, IP_LIMIT_MESSAGE);
     const user = await User.findOne({ email });
     if (!user) {
+      await recordIpFailure(ip);
       return res.status(404).json({ message: "User not found" });
     } else {
       // Verify the token (clears it on success or after too many attempts)
       const result = await verifyOneTimeSecret(user, "reset", token);
       if (result !== "ok") {
+        await recordIpFailure(ip);
         return rejectOneTimeSecret(res, result, "reset");
       } else {
         // Hash and store the new password
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await User.updateOne({ _id: user._id }, { $set: { password: hashedPassword } });
+        // A successful reset also clears any password lockout.
+        await User.updateOne(
+          { _id: user._id },
+          { $set: { password: hashedPassword, failedLoginAttempts: 0, lockUntil: null } }
+        );
         res.json({ message: "Password reset successful" });
       }
     }
@@ -386,12 +477,13 @@ export const forgotPassword = async (req, res) => {
       }
       // Generate a password reset token (valid 15 minutes, 5 attempts)
       const resetToken = await issueOneTimeSecret(user, "reset");
-      // Send the token via email
-      await sendEmail(
-        user.email,
-        "Your Password Reset Token",
-        `Your password reset token is: ${resetToken}`
+      const sent = await deliverOneTimeSecret(
+        user,
+        "reset",
+        "Your KitchenWise password reset code",
+        `<p>Your KitchenWise password reset code is: <strong>${resetToken}</strong></p><p>It expires in 15 minutes. If you didn't request it, you can ignore this email; your password has not changed.</p>`
       );
+      if (!sent) return res.status(502).json({ message: EMAIL_FAILED_MESSAGE });
       res.json({ message: "Password reset token sent to email" });
     }
   } catch (err) {

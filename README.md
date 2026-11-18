@@ -17,7 +17,7 @@ This service handles all authentication concerns for the application. It exposes
 - **Framework:** Express
 - **Database:** MongoDB (Mongoose)
 - **Authentication:** JWT (JSON Web Tokens), bcrypt password hashing
-- **Email:** Resend (login codes and password reset tokens)
+- **Email:** Gmail over SMTP via Nodemailer, from a dedicated app account (login codes and password reset tokens)
 
 ---
 
@@ -48,7 +48,9 @@ Logout is stateless: the server does not revoke tokens, so the client must disca
 | POST | `/api/send-login-code` | none | `email` | Email a 6-digit login code (valid 15 minutes) |
 | POST | `/api/login-with-code` | none | `email`, `code` | Log in with that code and return a JWT |
 
-Login codes and reset tokens are 6 digits, valid for 15 minutes, and single use. Each allows 5 wrong attempts; after that it is cleared and the endpoint returns `429` until a new one is requested. A new code or token can be requested at most once per minute (`429` with a `Retry-After` header otherwise). Missing or non-string fields return `400`.
+Login codes and reset tokens are 6 digits, valid for 15 minutes, and single use. Each allows 5 wrong attempts; after that it is cleared and the endpoint returns `429` until a new one is requested. A new code or token can be requested at most once per minute (`429` with a `Retry-After` header otherwise). Missing or non-string fields return `400`. If the email can't be sent, send-login-code and forgot-password return `502` and no code is kept, so the user can retry right away.
+
+Password guessing is limited too: after 10 wrong passwords an account is locked for 15 minutes (`429` with `Retry-After`). Logging in with an emailed code or resetting the password still works while locked, and a reset unlocks the account. Separately, each client IP is allowed 30 failed attempts (wrong password, unknown account, or bad code/token) per 15 minutes across all accounts, then gets `429`.
 
 `/api/update-profile` cannot change email or password; any `email` or `password` in the body is ignored. Use the forgot/reset flow to change a password.
 
@@ -73,7 +75,8 @@ Create a `.env` file in the root of the project with the following variables:
 ```env
 MONGO_URI=your_mongodb_connection_string
 JWT_SECRET=your_jwt_secret
-RESEND_API_KEY=your_resend_api_key
+GMAIL_USER=the_app_gmail_address@gmail.com
+GMAIL_APP_PASSWORD=16_character_google_app_password
 ```
 
 If MongoDB can't be reached, the service logs the error and keeps running: `/api/health` still responds, and database routes return 500.

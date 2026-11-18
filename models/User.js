@@ -23,6 +23,10 @@ const userSchema = new mongoose.Schema(
     codeSentAt: Date,
     resetPasswordAttempts: { type: Number, default: 0 },
     resetPasswordSentAt: Date,
+
+    // Password guessing limit: lock the account after too many wrong passwords.
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockUntil: Date,
   },
   { timestamps: true }
 );
