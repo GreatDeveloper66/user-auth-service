@@ -17,7 +17,7 @@ This service handles all authentication concerns for the application. It exposes
 - **Framework:** Express
 - **Database:** MongoDB (Mongoose)
 - **Authentication:** JWT (JSON Web Tokens), bcrypt password hashing
-- **Email:** Gmail over SMTP via Nodemailer, from a dedicated app account (login codes and password reset tokens)
+- **Email:** Nodemailer over SMTP, currently through Brevo (login codes and password reset tokens)
 
 ---
 
@@ -75,8 +75,11 @@ Create a `.env` file in the root of the project with the following variables:
 ```env
 MONGO_URI=your_mongodb_connection_string
 JWT_SECRET=your_jwt_secret
-GMAIL_USER=the_app_gmail_address@gmail.com
-GMAIL_APP_PASSWORD=16_character_google_app_password
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_USER=your_brevo_smtp_login
+SMTP_PASS=your_brevo_smtp_key
+EMAIL_FROM=KitchenWise <verified_sender@example.com>
 ```
 
 If MongoDB can't be reached, the service logs the error and keeps running: `/api/health` still responds, and database routes return 500.
