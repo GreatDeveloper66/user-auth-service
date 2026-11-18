@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { pathToFileURL } from "node:url";
 import connectDB from "../config/db.js";
 import {
   registerUser,
@@ -42,4 +43,12 @@ app.post("/api/forgot-password", forgotPassword);
 app.post("/api/reset-password", resetPassword);
 app.post("/api/send-login-code", sendLoginCode);
 app.post("/api/login-with-code", loginWithCode);
+
+// Vercel imports this file and serves the exported app. When run directly
+// (npm run dev / npm start), listen on PORT so the service works locally.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const port = process.env.PORT || 3000;
+  app.listen(port, () => console.log(`Listening on http://localhost:${port}`));
+}
+
 export default app;

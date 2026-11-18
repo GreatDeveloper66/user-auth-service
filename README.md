@@ -99,7 +99,7 @@ npm install
 
 The app is deployed on Vercel, which imports the Express app exported from `src/server.js`.
 
-`npm run dev` and `npm start` both run `node src/server.js`, but that file does not call `app.listen()`. It connects to MongoDB but never listens on a port, so the service cannot currently be run locally this way. `npm run build` only runs `npm install`.
+`npm run dev` and `npm start` both run `node src/server.js`, which listens on `PORT` (default 3000). Vercel imports the same file and does not use that listener. `npm run build` only runs `npm install`.
 
 ---
 
